@@ -1,5 +1,10 @@
 import math
 import random
+import threading
+import time
+from typing import Tuple
+
+import copy
 
 from emulators.Device import Device
 from emulators.Medium import Medium
@@ -140,6 +145,36 @@ def find_majority(raw: [(int, int)]):
             best = None
     return best
 
+
+class KingMessage(MessageStub):
+    def __init__(self, v: int, sender: int = 0, destination: int = 0):
+        super().__init__(sender, destination)
+        self.v = v
+
+    def __str__(self):
+        return f"KINGMSG {self.source} -> {self.destination}: v={self.v}"
+
+
+class ValueHolder:
+    def __init__(self):
+        self.vs = {}
+
+    def add_value(self, v: int):
+        if v in self.vs:
+            self.vs[v] += 1
+        else:
+            self.vs[v] = 1
+
+    def get_most_common(self) -> Tuple[int, int]:
+        v = max(self.vs, key=self.vs.get)
+        return v, self.vs[v]
+
+
+def trace(*args):
+    print(*args)
+    return args[-1]
+
+
 class King(Device):
     def __init__(self, index: int, number_of_devices: int, medium: Medium, application: ConsensusRequester = None):
         super().__init__(index, number_of_devices, medium)
@@ -148,11 +183,42 @@ class King(Device):
         else:
             self._application = SimpleRequester()
 
+        self.f = 1
+
+    def b_multicast(self, message: MessageStub):
+        return SingleByzantine.b_multicast(self, message)
+
     def run(self):
-        pass
+        for phase in range(self.f):
+            v = self._application.initial_value
+
+            # PHASE 1
+            # Lets start with sending messages to everyone
+            self.b_multicast(KingMessage(v))
+            self.medium().wait_for_next_round()
+
+            # PHASE 2
+            vh = ValueHolder()
+            [vh.add_value(v) for v in
+                map(lambda msg: msg.v, self.medium().receive_all())]
+            v, m = vh.get_most_common()
+            print("Hello im {self.index()}, and i decided on {v}")
+
+            if self.index() == phase:
+                # I AM KING
+                self.b_multicast(KingMessage(v))
+            self.medium().wait_for_next_round()
+
+            # PHASE 3
+            vking = self.medium().receive().v
+            if m < (self.number_of_devices() / 2) + self.f + 1:
+                v = vking
+
+        self.the_v = v
+        self._application.consensus_reached(v)
 
     def print_result(self):
-        pass
+        print(f"Device {self.index()} agrees on {self.the_v}")
 
 
 class PrepareMessage(MessageStub):
