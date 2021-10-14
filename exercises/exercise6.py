@@ -40,6 +40,12 @@ class SimpleRequester(ConsensusRequester):
                 f"Disagreement in consensus, expected {element} but other process already got {SimpleRequester._consensus}")
 
 
+class ConstRequester(SimpleRequester):
+    def __init__(self, value):
+        super().__init__()
+        self._proposal = value
+
+
 class Propose(MessageStub):
     def __init__(self, value, sender: int = 0, destination: int = 0):
         super().__init__(0, 0)
@@ -181,7 +187,7 @@ class King(Device):
         if application is not None:
             self._application = application
         else:
-            self._application = SimpleRequester()
+            self._application = ConstRequester(10)
 
         self.f = 1
 
@@ -190,7 +196,11 @@ class King(Device):
 
     def run(self):
         for phase in range(self.f):
-            v = self._application.initial_value
+            # Check if first king
+            if self.index() == 0:
+                v = 55
+            else:
+                v = self._application.initial_value
 
             # PHASE 1
             # Lets start with sending messages to everyone
@@ -202,7 +212,10 @@ class King(Device):
             [vh.add_value(v) for v in
                 map(lambda msg: msg.v, self.medium().receive_all())]
             v, m = vh.get_most_common()
-            print("Hello im {self.index()}, and i decided on {v}")
+            if self.index() == 0:
+                # Byzentine
+                v = 55
+            print(f"Hello im {self.index()}, and i decided on {v} with m={m}")
 
             if self.index() == phase:
                 # I AM KING
@@ -211,14 +224,21 @@ class King(Device):
 
             # PHASE 3
             vking = self.medium().receive().v
-            if m < (self.number_of_devices() / 2) + self.f + 1:
+            if m < int((hej := (self.number_of_devices() / 2) + self.f + 1)):
+                print("I should not happen", hej, m, m < hej)
                 v = vking
 
         self.the_v = v
-        self._application.consensus_reached(v)
+        if self.index() != 0:
+            self._application.consensus_reached(v)
 
     def print_result(self):
         print(f"Device {self.index()} agrees on {self.the_v}")
+
+# Det er ikke rigtig til at lave en byzentine der kan overbevise
+# de andre om at tage dens værdi. Også selvom den bliver elected king.
+# Det er fordi de bruger majority voting, og man har 4 * f.
+# Man kan også se at når n er under 5 så vælger alle byzentine resultat
 
 
 class PrepareMessage(MessageStub):
